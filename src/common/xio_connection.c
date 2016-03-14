@@ -317,7 +317,7 @@ int xio_connection_send(struct xio_connection *connection,
 		if (connection->session->peer_rcv_queue_depth_bytes <
 		    tx_bytes) {
 			ERROR_LOG(
-			    "message length %zd is bigger then peer " \
+			    "message length %zd is bigger than peer " \
 			    "receive queue size %llu\n", tx_bytes,
 			    connection->session->peer_rcv_queue_depth_bytes);
 			return -XIO_E_PEER_QUEUE_SIZE_MISMATCH;
@@ -440,6 +440,7 @@ int xio_connection_send(struct xio_connection *connection,
 	/* send it */
 	retval = xio_nexus_send(connection->nexus, task);
 	if (retval != 0) {
+		ERROR_LOG("xio_nexus_send failed with %d\n", retval);
 		rc = (retval == -EAGAIN) ? EAGAIN : xio_errno();
 		if (!task->is_control || task->tlv_type == XIO_ACK_REQ) {
 			if (connection->enable_flow_control) {
@@ -1356,6 +1357,10 @@ static int xio_send_typed_msg(struct xio_connection *connection,
 		if (connection->enable_flow_control) {
 			connection->tx_queued_msgs++;
 			connection->tx_bytes += tx_bytes;
+			TRACE_LOG(
+				"connection->tx_queued_msgs=%zu, connection->tx_bytes=%zu\n",
+				connection->tx_queued_msgs,
+				connection->tx_bytes);
 		}
 		if (nr == -1)
 			xio_msg_list_insert_tail(&connection->reqs_msgq, pmsg,
@@ -3086,7 +3091,7 @@ int xio_connection_send_ka_req(struct xio_connection *connection)
 	    connection->ka.req_sent)
 		return 0;
 
-	DEBUG_LOG("send keepalive request. session:%p, connection:%p\n",
+	TRACE_LOG("send keepalive request. session:%p, connection:%p\n",
 		  connection->session, connection);
 
 	msg = (struct xio_msg *)xio_context_msg_pool_get(connection->ctx);
@@ -3114,7 +3119,7 @@ int xio_connection_send_ka_rsp(struct xio_connection *connection,
 {
 	struct xio_msg	*msg;
 
-	DEBUG_LOG("send keepalive response. session:%p, connection:%p\n",
+	TRACE_LOG("send keepalive response. session:%p, connection:%p\n",
 		  connection->session, connection);
 
 	msg = (struct xio_msg *)xio_context_msg_pool_get(connection->ctx);
@@ -3141,7 +3146,7 @@ int xio_on_connection_ka_rsp_recv(struct xio_connection *connection,
 {
 	int retval;
 
-	DEBUG_LOG("recv keepalive response. session:%p, connection:%p\n",
+	TRACE_LOG("recv keepalive response. session:%p, connection:%p\n",
 		  connection->session, connection);
 
 	xio_ctx_del_delayed_work(connection->ctx,
@@ -3177,7 +3182,7 @@ int xio_on_connection_ka_req_recv(struct xio_connection *connection,
 				  struct xio_task *task)
 {
 	/* delayed disconnect request should be done now */
-	DEBUG_LOG("recv keepalive request. session:%p, connection:%p\n",
+	TRACE_LOG("recv keepalive request. session:%p, connection:%p\n",
 		  connection->session, connection);
 
 	connection->ka.timedout = 0;
