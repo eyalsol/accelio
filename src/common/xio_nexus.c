@@ -1216,6 +1216,7 @@ struct xio_nexus *xio_nexus_create(struct xio_nexus *parent_nexus,
 	kref_init(&nexus->kref);
 	nexus->state			= XIO_NEXUS_STATE_OPEN;
 	nexus->is_first_req		= 1;
+	mutex_init(&nexus->lock_connect);
 
 	xio_nexus_cache_add(nexus, &nexus->cid);
 
@@ -1773,6 +1774,7 @@ static int xio_nexus_destroy(struct xio_nexus *nexus)
 
 	XIO_OBSERVER_DESTROY(&nexus->ctx_observer);
 	XIO_OBSERVER_DESTROY(&nexus->srv_observer);
+	mutex_destroy(&nexus->lock_connect);
 
 	kfree(nexus);
 
@@ -1871,6 +1873,7 @@ struct xio_nexus *xio_nexus_open(struct xio_context *ctx,
 			  xio_nexus_on_transport_event);
 	XIO_OBSERVABLE_INIT(&nexus->observable, nexus);
 	INIT_LIST_HEAD(&nexus->tx_queue);
+	mutex_init(&nexus->lock_connect);
 
 	xio_nexus_init_observers_htbl(nexus);
 
@@ -2008,6 +2011,7 @@ int xio_nexus_connect(struct xio_nexus *nexus, const char *portal_uri,
 		return -1;
 	}
 
+	mutex_lock(&nexus->lock_connect);
 	switch (nexus->state) {
 	case XIO_NEXUS_STATE_OPEN:
 		/* for reconnect */
@@ -2049,6 +2053,7 @@ int xio_nexus_connect(struct xio_nexus *nexus, const char *portal_uri,
 	default:
 		break;
 	}
+	mutex_unlock(&nexus->lock_connect);
 
 	return 0;
 
@@ -2060,6 +2065,7 @@ cleanup2:
 	nexus->portal_uri = NULL;
 cleanup1:
 	ERROR_LOG("transport connect failed\n");
+	mutex_unlock(&nexus->lock_connect);
 	return -1;
 }
 
