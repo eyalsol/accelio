@@ -914,7 +914,6 @@ static int xio_nexus_initial_pool_create(struct xio_nexus *nexus)
 	struct xio_transport_base	*transport_hndl;
 	struct xio_tasks_pool_cls	pool_cls;
 	struct xio_context		*ctx;
-	struct xio_task			*task;
 	enum xio_proto			proto;
 	int				retval;
 
@@ -948,18 +947,13 @@ static int xio_nexus_initial_pool_create(struct xio_nexus *nexus)
 	}
 	pool_ops = ctx->initial_pool_ops[proto];
 
-	nexus->initial_tasks_pool = ctx->initial_tasks_pool[proto];
-
-	list_for_each_entry(task, &nexus->initial_tasks_pool->stack, tasks_list_entry) {
-		xio_task_reinit(transport_hndl, task);
-	}
-
 	if (pool_ops->pool_post_create)
 		pool_ops->pool_post_create(
 				transport_hndl,
 				ctx->initial_tasks_pool[proto],
 				ctx->initial_tasks_pool[proto]->dd_data);
 
+	nexus->initial_tasks_pool = ctx->initial_tasks_pool[proto];
 
 	return 0;
 }
@@ -1002,6 +996,12 @@ static int xio_nexus_primary_pool_create(struct xio_nexus *nexus)
 	}
 	pool_ops = ctx->primary_pool_ops[proto];
 
+	if (pool_ops->pool_post_create)
+		pool_ops->pool_post_create(
+				transport_hndl,
+				ctx->primary_tasks_pool[proto],
+				ctx->primary_tasks_pool[proto]->dd_data);
+
 	nexus->primary_tasks_pool = ctx->primary_tasks_pool[proto];
 
 	/* set pool context as the nexus's transport handler */
@@ -1010,12 +1010,6 @@ static int xio_nexus_primary_pool_create(struct xio_nexus *nexus)
 	list_for_each_entry(task, &nexus->primary_tasks_pool->stack, tasks_list_entry) {
 		xio_task_reinit(nexus->transport_hndl, task);
 	}
-
-	if (pool_ops->pool_post_create)
-		pool_ops->pool_post_create(
-				transport_hndl,
-				ctx->primary_tasks_pool[proto],
-				ctx->primary_tasks_pool[proto]->dd_data);
 
 	return 0;
 }
