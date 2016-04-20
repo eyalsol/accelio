@@ -1823,16 +1823,6 @@ struct xio_nexus *xio_nexus_open(struct xio_context *ctx,
 			xio_nexus_hash_observer(nexus, observer, oid);
 			spin_unlock(&nexus->nexus_obs_lock);
 		}
-		if (xio_is_delayed_work_pending(&nexus->close_time_hndl)) {
-			xio_ctx_del_delayed_work(ctx,
-						 &nexus->close_time_hndl);
-			kref_init(&nexus->kref);
-		} else {
-			xio_nexus_addref(nexus);
-		}
-
-		TRACE_LOG("nexus: [addref] nexus:%p, refcnt:%d\n", nexus,
-			  atomic_read(&nexus->kref.refcount));
 
 		return nexus;
 	}
@@ -2168,7 +2158,7 @@ static void xio_nexus_delayed_close(struct kref *kref)
 		/* only client shall cause disconnection */
 		retval = xio_ctx_add_delayed_work(
 				nexus->transport_hndl->ctx,
-				XIO_NEXUS_CLOSE_TIMEOUT, nexus,
+				g_options.transport_close_timeout, nexus,
 				xio_nexus_release_cb,
 				&nexus->close_time_hndl);
 		if (retval)
@@ -2474,6 +2464,10 @@ static int xio_nexus_server_reconnect(struct xio_nexus *nexus)
 
 	xio_nexus_state_set(nexus, XIO_NEXUS_STATE_RECONNECT);
 
+	xio_observable_notify_all_observers(&nexus->observable,
+						XIO_NEXUS_EVENT_RECONNECTING,
+					    NULL);
+
 	/* Just wait and see if some client tries to reconnect */
 	retval = xio_ctx_add_delayed_work(nexus->transport_hndl->ctx,
 					  XIO_SERVER_TIMEOUT, nexus,
@@ -2571,6 +2565,10 @@ static int xio_nexus_client_reconnect(struct xio_nexus *nexus)
 	}
 
 	xio_nexus_state_set(nexus, XIO_NEXUS_STATE_RECONNECT);
+
+	xio_observable_notify_all_observers(&nexus->observable,
+						XIO_NEXUS_EVENT_RECONNECTING,
+					    NULL);
 
 	/* All portal_uri and out_if were saved in the nexus
 	 * observer is not used in this flow

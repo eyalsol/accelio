@@ -64,7 +64,8 @@ static int nexus_cache_add(struct xio_nexus *nexus, int nexus_id)
 {
 	struct xio_nexus *c;
 	struct xio_key_int32  key = {
-		nexus_id
+		.id = nexus_id,
+		.pad = {0},
 	};
 
 	HT_LOOKUP(&nexus_cache, &key, c, nexus_htbl);
@@ -154,15 +155,20 @@ struct xio_nexus *xio_nexus_cache_find(struct xio_nexus_query_params *query)
 				continue;
 			if (tos_enabled && nexus->trans_attr.tos != query->tos)
 				continue;
+
 			/* match found */
-			goto found;
+			xio_nexus_addref(nexus);
+
+			TRACE_LOG("nexus: [addref] nexus:%p, refcnt:%d\n", nexus,
+				  atomic_read(&nexus->kref.refcount));
+			goto done;
 		}
 	}
 	nexus = NULL;
 
-found:
+done:
 	spin_unlock(&cs_lock);
-	return  nexus;
+	return nexus;
 }
 
 /*---------------------------------------------------------------------------*/

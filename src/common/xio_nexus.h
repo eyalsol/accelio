@@ -43,11 +43,6 @@ extern "C" {
 #endif
 
 /*---------------------------------------------------------------------------*/
-/* defines	                                                             */
-/*---------------------------------------------------------------------------*/
-#define XIO_NEXUS_CLOSE_TIMEOUT	60000
-
-/*---------------------------------------------------------------------------*/
 /* typedefs								     */
 /*---------------------------------------------------------------------------*/
 struct xio_nexus;
@@ -59,6 +54,7 @@ enum xio_nexus_event {
 	XIO_NEXUS_EVENT_NEW_CONNECTION,
 	XIO_NEXUS_EVENT_ESTABLISHED,
 	XIO_NEXUS_EVENT_DISCONNECTED,
+	XIO_NEXUS_EVENT_RECONNECTING,
 	XIO_NEXUS_EVENT_RECONNECTED,
 	XIO_NEXUS_EVENT_CLOSED,
 	XIO_NEXUS_EVENT_REFUSED,
