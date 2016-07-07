@@ -3356,31 +3356,32 @@ void xio_connection_keepalive_start(void *_connection)
 /* xio_connection_force_disconnect					     */
 /*---------------------------------------------------------------------------*/
 int xio_connection_force_disconnect(struct xio_connection *connection,
-                                    enum xio_status reason)
+				    enum xio_status reason)
 {
 
-        connection->close_reason = reason;
+	connection->close_reason = reason;
 
-        xio_session_notify_connection_error(connection->session, connection,
-                                            reason);
+	xio_session_notify_connection_error(connection->session, connection,
+					    reason);
 
-        if (connection->state != XIO_CONNECTION_STATE_DISCONNECTED)
-                xio_nexus_close(connection->nexus, &connection->session->observer);
+	if (connection->state != XIO_CONNECTION_STATE_DISCONNECTED)
+		xio_nexus_close(connection->nexus,
+				&connection->session->observer);
 
         /* flush all messages from in flight message queue to in queue */
-        xio_connection_flush_msgs(connection);
+	xio_connection_flush_msgs(connection);
 
         /* flush all messages back to user */
-        xio_connection_notify_msgs_flush(connection);
+	xio_connection_notify_msgs_flush(connection);
 
-        connection->state	 = XIO_CONNECTION_STATE_ERROR;
+	connection->state	 = XIO_CONNECTION_STATE_ERROR;
 
-        xio_ctx_add_work(
-                         connection->ctx,
-                         connection,
-                         xio_connection_teardown_handler,
-                         &connection->teardown_work);
+	xio_ctx_add_work(
+			 connection->ctx,
+			 connection,
+			 xio_connection_teardown_handler,
+			 &connection->teardown_work);
 
-        return 0;
+	return 0;
 }
 
