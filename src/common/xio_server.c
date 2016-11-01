@@ -308,7 +308,6 @@ static int xio_on_nexus_event(void *observer, void *notifier, int event,
 	return retval;
 }
 
-
 /*---------------------------------------------------------------------------*/
 /* xio_bind								     */
 /*---------------------------------------------------------------------------*/
@@ -318,8 +317,13 @@ struct xio_server *xio_bind_ex(struct xio_bind_params *bind_prms,
 	struct xio_server	*server;
 	int			retval;
 
-	if (!bind_prms || !bind_prms->ctx  || !bind_prms->ops || 
-	    !bind_prms->uri) {
+	if (!bind_prms) {
+		ERROR_LOG("invalid parameter bind_prms:null\n");
+		xio_set_error(EINVAL);
+		return NULL;
+	}
+
+	if (!bind_prms->ctx  || !bind_prms->ops || !bind_prms->uri) {
 		ERROR_LOG("invalid parameters ctx:%p, ops:%p, uri:%p\n",
 			  bind_prms->ctx, bind_prms->ops, bind_prms->uri);
 		xio_set_error(EINVAL);
@@ -349,15 +353,15 @@ struct xio_server *xio_bind_ex(struct xio_bind_params *bind_prms,
 
 	XIO_OBSERVABLE_INIT(&server->nexus_observable, server);
 
-	server->listener = xio_nexus_open(bind_prms->ctx, 
-					  bind_prms->uri, 
+	server->listener = xio_nexus_open(bind_prms->ctx,
+					  bind_prms->uri,
 					  NULL, 0, 0, NULL);
 	if (!server->listener) {
 		ERROR_LOG("failed to create connection\n");
 		goto cleanup;
 	}
 	retval = xio_nexus_listen(server->listener,
-				  bind_prms->uri, src_port, 
+				  bind_prms->uri, src_port,
 				  bind_prms->backlog);
 	if (retval != 0) {
 		ERROR_LOG("connection listen failed\n");

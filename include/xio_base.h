@@ -1029,11 +1029,11 @@ struct xio_bind_params {
 	struct xio_context	*ctx;
 
 	/**< server's event handlers */
-	struct xio_session_ops	*ops;		
+	struct xio_session_ops	*ops;
 
 	/**< listen uri of server    */
-	const char		*uri;		
-	
+	const char		*uri;
+
 	/**< message related flags  as defined in enum xio_msg_flags */
 	uint32_t		flags;
 
@@ -1043,6 +1043,7 @@ struct xio_bind_params {
 	/**< private data pointer to pass to each callback */
 	void			*private_data;
 };
+
 /**
  * open a server listener object
  *
