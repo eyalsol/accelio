@@ -3410,3 +3410,36 @@ int xio_connection_force_disconnect(struct xio_connection *connection,
 	return 0;
 }
 
+/*---------------------------------------------------------------------------*/
+/* xio_retain_request							     */
+/*---------------------------------------------------------------------------*/
+int xio_retain_request(struct xio_msg *req)
+{
+	struct xio_task	*task = container_of(req, struct xio_task, imsg);
+	
+	/* already on hold */
+	if (unlikely(task->on_hold))
+		return 0;
+
+	task->on_hold = 1;
+	kref_get(&task->kref);
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_dismiss_request							     */
+/*---------------------------------------------------------------------------*/
+int xio_dismiss_request(struct xio_msg *req)
+{
+	struct xio_task	*task = container_of(req, struct xio_task, imsg);
+	
+	/* not on hold */
+	if (unlikely(!task->on_hold))
+		return 0;
+
+	task->on_hold = 0;
+	xio_tasks_pool_put(task);
+
+	return 0;
+}

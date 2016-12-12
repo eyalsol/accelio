@@ -77,7 +77,8 @@ struct xio_task {
 	uint32_t                rtid;           /* remote task id       */
 	uint32_t                magic;
 	int32_t                 status;
-	int32_t                 pad1;
+	uint32_t                on_hold:1;
+	uint32_t                pad:31;
 
 	void			*pool;
 	void			*slab;
