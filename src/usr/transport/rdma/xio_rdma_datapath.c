@@ -107,6 +107,7 @@ int xio_post_recv(struct xio_rdma_transport *rdma_hndl,
 	struct ibv_recv_wr	*bad_wr	= NULL;
 	int			retval, nr_posted;
 
+	task->context = rdma_hndl;
 #ifdef XIO_SRQ_ENABLE
 	retval = ibv_post_srq_recv(rdma_hndl->tcq->srq->srq,
 			&rdma_task->rxd.recv_wr, &bad_wr);
@@ -809,6 +810,7 @@ static XIO_F_ALWAYS_INLINE int xio_rdma_rx_handler(
 	    (rdma_hndl->rqe_avail <= rdma_hndl->rq_depth + 1))
 		xio_rdma_rearm_rq(rdma_hndl);
 	*/
+	xio_mbuf_reset(&task->mbuf);
 
 	retval = xio_mbuf_read_first_tlv(&task->mbuf);
 
@@ -1154,6 +1156,68 @@ static XIO_F_ALWAYS_INLINE void xio_rdma_rd_rsp_comp_handler(
 }
 
 /*---------------------------------------------------------------------------*/
+/* xio_rdma_match_request_to_response					     */
+/*---------------------------------------------------------------------------*/
+int xio_rdma_match_request_to_response(struct xio_rdma_transport *rdma_hndl, 
+				       struct xio_task *task, int opcode)
+{
+	struct xio_rdma_rsp_hdr	*tmp_rsp_hdr;
+	struct xio_rdma_rsp_hdr	rsp_hdr;
+	int retval;
+	uint64_t tlv_type;
+	struct xio_task *sender_task;
+
+	if (opcode != IBV_WC_RECV)
+		return 0;
+	
+	xio_mbuf_reset(&task->mbuf);
+	retval = xio_mbuf_read_first_tlv(&task->mbuf);
+	if (retval)
+		goto cleanup;
+
+	tlv_type = xio_mbuf_tlv_type(&task->mbuf);
+	switch (tlv_type) {
+		case XIO_RDMA_READ_ACK:
+		case XIO_NEXUS_SETUP_REQ:
+		case XIO_NEXUS_SETUP_RSP:
+		case XIO_CANCEL_REQ:
+		case XIO_CANCEL_RSP:
+			return 0;
+		break;
+	default:
+		if (!IS_RESPONSE(tlv_type))
+			return 0;
+		break;
+	}
+
+	memset(&rsp_hdr, 0, sizeof(rsp_hdr));
+	/* point to transport header */
+	xio_mbuf_set_trans_hdr(&task->mbuf);
+	tmp_rsp_hdr = (struct xio_rdma_rsp_hdr *)
+				xio_mbuf_get_curr_ptr(&task->mbuf);
+	UNPACK_LVAL(tmp_rsp_hdr, &rsp_hdr, rtid);
+
+	/* find the sender task */
+	sender_task =
+		xio_rdma_primary_task_lookup(rdma_hndl, rsp_hdr.rtid);
+	
+	if (!sender_task || !IS_REQUEST(sender_task->tlv_type))
+		goto cleanup;
+
+	if (task == sender_task || task->context != sender_task->context)
+		goto cleanup;
+
+	task->sender_task = sender_task;
+
+	return 0;
+
+cleanup:
+	ERROR_LOG("task matching failed. release task:%p\n", task);
+	xio_tasks_pool_put(task);
+	return -1;
+}
+
+/*---------------------------------------------------------------------------*/
 /* xio_handle_wc							     */
 /*---------------------------------------------------------------------------*/
 static XIO_F_ALWAYS_INLINE void xio_handle_wc(struct ibv_wc *wc,
@@ -1163,12 +1227,21 @@ static XIO_F_ALWAYS_INLINE void xio_handle_wc(struct ibv_wc *wc,
 	int		opcode = wc->opcode;
 	struct xio_key_int32  key;
 	struct xio_rdma_transport *rdma_hndl;
+	int retval;
 
 	if (srq) {
 		key.id = wc->qp_num;
 		HT_LOOKUP(&srq->ht_rdma_hndl, &key, rdma_hndl, rdma_hndl_htbl);
 	} else {
 		rdma_hndl = (struct xio_rdma_transport *)task->context;
+	}
+
+	retval = xio_rdma_match_request_to_response(rdma_hndl, 
+						    task, opcode);
+	if (retval) {
+		ERROR_LOG("task matching failed rdma_hndl:%p, task:%p\n",
+			  rdma_hndl, task);
+		return;
 	}
 
 	/*
@@ -1843,6 +1916,7 @@ static int xio_rdma_read_rsp_header(struct xio_rdma_transport *rdma_hndl,
 	UNPACK_SVAL(tmp_rsp_hdr, rsp_hdr, ulp_pad_len);
 	/* remain_data_len not in use */
 	UNPACK_LLVAL(tmp_rsp_hdr, rsp_hdr, ulp_imm_len);
+
 
 	hdr_len	= sizeof(struct xio_rdma_rsp_hdr);
 	if (rsp_hdr->out_ib_op == XIO_IB_RDMA_WRITE) {
@@ -3054,16 +3128,20 @@ static int xio_rdma_on_recv_rsp(struct xio_rdma_transport *rdma_hndl,
 	/* read the sn */
 	rdma_task->sn = rsp_hdr.sn;
 
-	/* find the sender task */
-	sender_task =
-		xio_rdma_primary_task_lookup(rdma_hndl,
-					     rsp_hdr.rtid);
-	if (sender_task == NULL) {
-		ERROR_LOG("sender task not found!!!!!. Releasing incoming response. rdma_hndl:%p\n", rdma_hndl);
-		xio_tasks_pool_put(task);
-		return 0;
+	if (task->sender_task == NULL) {
+		/* find the sender task */
+		sender_task =
+			xio_rdma_primary_task_lookup(rdma_hndl,
+					rsp_hdr.rtid);
+		if (sender_task == NULL) {
+			ERROR_LOG("sender task not found!!!!!. Releasing incoming response. rdma_hndl:%p\n", rdma_hndl);
+			xio_tasks_pool_put(task);
+			return 0;
+		}
+		task->sender_task = sender_task;
+	} else {
+		sender_task = task->sender_task;
 	}
-	task->sender_task = sender_task;
 	rdma_sender_task = (struct xio_rdma_task *)sender_task->dd_data;
 	task->rtid	 = rsp_hdr.ltid;
 
