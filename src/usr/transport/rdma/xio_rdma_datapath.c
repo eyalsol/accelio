@@ -4407,9 +4407,7 @@ static int xio_rdma_send_setup_rsp(struct xio_rdma_transport *rdma_hndl,
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, payload) != 0)
 		return  -1;
 
-	DEBUG_LOG("%s - rdma_hndl:%p, peer_rdma_hndl:%p\n",
-		  __func__,
-		  rdma_hndl, rdma_hndl->peer_rdma_hndl);
+	DEBUG_LOG("%s - rdma_hndl:%p\n", __func__, rdma_hndl);
 
 	/* set the length */
 	rdma_task->txd.sge[0].length = xio_mbuf_data_length(&task->mbuf);
@@ -4501,7 +4499,10 @@ static int xio_rdma_on_setup_msg(struct xio_rdma_transport *rdma_hndl,
 	event_data.msg.op	= XIO_WC_OP_RECV;
 	event_data.msg.task	= task;
 
-	DEBUG_LOG("%s - rdma_hndl:%p\n", __func__, rdma_hndl);
+	DEBUG_LOG("%s - rdma_hndl:%p, peer_rdma_hndl:%p\n",
+		  __func__,
+		  rdma_hndl, rdma_hndl->peer_rdma_hndl);
+
 
 	xio_transport_notify_observer(&rdma_hndl->base,
 				      XIO_TRANSPORT_EVENT_NEW_MESSAGE,
