@@ -115,6 +115,10 @@ static void xio_rdma_post_close(struct xio_transport_base *trans_hndl);
 static int xio_rdma_flush_all_tasks(struct xio_rdma_transport *rdma_hndl);
 static void xio_device_release(struct xio_device *dev);
 static int xio_rdma_relisten(struct xio_rdma_transport *rdma_hndl, int backlog);
+static void  on_cm_disconnected(struct rdma_cm_event *ev,
+				struct xio_rdma_transport *rdma_hndl);
+static void on_cm_timewait_exit(void *trans_hndl);
+static void on_post_disconnected(void *trans_hndl);
 
 /*---------------------------------------------------------------------------*/
 /* xio_rdma_get_max_header_size						     */
@@ -454,8 +458,10 @@ static int xio_on_context_event(void *observer, void *sender,
 {
 	struct xio_cq	*cq = (struct xio_cq *)observer;
 
-	if (event == XIO_CONTEXT_EVENT_POST_CLOSE) {
+	if (event == XIO_CONTEXT_EVENT_CLOSE)
 		TRACE_LOG("context: [close] ctx:%p\n", sender);
+	if (event == XIO_CONTEXT_EVENT_POST_CLOSE) {
+		TRACE_LOG("context: [post close] ctx:%p\n", sender);
 		xio_cq_release(cq);
 	}
 
@@ -917,8 +923,11 @@ static int xio_rdma_context_shutdown(struct xio_transport_base *trans_hndl,
 	rdma_hndl->ignore_timewait = 1;
 	rdma_hndl->ignore_disconnect = 1;
 
-	xio_context_destroy_wait(ctx);
 	xio_rdma_close(trans_hndl);
+	/* expedite the close */
+	on_cm_disconnected(NULL, rdma_hndl);
+	on_post_disconnected(trans_hndl);
+	on_cm_timewait_exit(trans_hndl);
 
 	return 0;
 }
@@ -1988,8 +1997,6 @@ static void xio_rdma_post_close(struct xio_transport_base *trans_base)
 
 	xio_cm_channel_release(rdma_hndl->cm_channel);
 
-	xio_context_destroy_resume(rdma_hndl->base.ctx);
-
 	if (rdma_hndl->rkey_tbl) {
 		ufree(rdma_hndl->rkey_tbl);
 		rdma_hndl->rkey_tbl = NULL;
@@ -2010,6 +2017,8 @@ static void xio_rdma_post_close(struct xio_transport_base *trans_base)
 
 	ufree(rdma_hndl->srv_listen_uri);
 	ufree(rdma_hndl);
+
+	DEBUG_LOG("%s - end. rdma_hndl:%p\n", __func__, rdma_hndl);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2256,6 +2265,37 @@ static void  on_cm_established(struct rdma_cm_event *ev,
 				      NULL);
 }
 
+/*---------------------------------------------------------------------------*/
+/* on_post_disconnected						     */
+/*---------------------------------------------------------------------------*/
+static void on_post_disconnected(void *trans_hndl)
+{
+	struct xio_rdma_transport *rdma_hndl =
+				(struct xio_rdma_transport *)trans_hndl;
+
+	if (rdma_hndl->post_disconnected_nr)
+		return;
+	rdma_hndl->post_disconnected_nr = 1;
+
+	TRACE_LOG("on_post_disconnected rdma_hndl:%p state:%s\n",
+		  rdma_hndl, xio_transport_state_str(rdma_hndl->state));
+
+	xio_ctx_del_delayed_work(rdma_hndl->base.ctx,
+				 &rdma_hndl->timewait_timeout_work);
+
+	xio_rdma_flush_all_tasks(rdma_hndl);
+
+	if (rdma_hndl->state == XIO_TRANSPORT_STATE_DISCONNECTED) {
+		xio_transport_notify_observer(&rdma_hndl->base,
+					      XIO_TRANSPORT_EVENT_DISCONNECTED,
+					      NULL);
+	}
+	xio_transport_notify_observer(
+			&rdma_hndl->base,
+			XIO_TRANSPORT_EVENT_CLOSED,
+			NULL);
+}
+
 /*
  * Handle RDMA_CM_EVENT_TIMEWAIT_EXIT which is expected to be the last
  * event during the life cycle of a connection, when it had been shut down
@@ -2268,6 +2308,7 @@ static void on_cm_timewait_exit(void *trans_hndl)
 {
 	struct xio_rdma_transport *rdma_hndl =
 				(struct xio_rdma_transport *)trans_hndl;
+	int ref;
 
 	TRACE_LOG("on_cm_timedwait_exit rdma_hndl:%p state:%s\n",
 		  rdma_hndl, xio_transport_state_str(rdma_hndl->state));
@@ -2276,24 +2317,19 @@ static void on_cm_timewait_exit(void *trans_hndl)
 		return;
 	rdma_hndl->timewait_nr = 1;
 
-	xio_ctx_del_delayed_work(rdma_hndl->base.ctx,
-				 &rdma_hndl->timewait_timeout_work);
+	on_cm_disconnected(NULL, rdma_hndl);
+	on_post_disconnected(trans_hndl);
 
-	xio_rdma_flush_all_tasks(rdma_hndl);
-
-	if (rdma_hndl->state == XIO_TRANSPORT_STATE_DISCONNECTED) {
-		xio_transport_notify_observer(&rdma_hndl->base,
-					      XIO_TRANSPORT_EVENT_DISCONNECTED,
-					      NULL);
-	}
 	/* if beacon was sent but was never received as wc error then reduce
 	   ref count */
 	if (rdma_hndl->beacon_sent) {
 		rdma_hndl->beacon_sent = 0;
 		kref_put(&rdma_hndl->base.kref, xio_rdma_close_cb);
 	}
-
-	kref_put(&rdma_hndl->base.kref, xio_rdma_close_cb);
+	/* now it ok to exit */
+	ref = atomic_read(&rdma_hndl->base.kref.refcount);
+	while (ref--)
+		kref_put(&rdma_hndl->base.kref, xio_rdma_close_cb);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2316,7 +2352,6 @@ int xio_rdma_disconnect(struct xio_rdma_transport *rdma_hndl,
 	}
 	if (!send_beacon)
 		return 0;
-
 	/* post an indication that all flush errors were consumed */
 	retval = ibv_post_send(rdma_hndl->qp, &rdma_hndl->beacon, &bad_wr);
 	if (retval == ENOTCONN) {
@@ -2332,9 +2367,9 @@ int xio_rdma_disconnect(struct xio_rdma_transport *rdma_hndl,
 		ERROR_LOG("rdma_hndl %p failed to post beacon %d %d\n",
 			  rdma_hndl, retval, errno);
 		return -1;
-	} else
+	} else {
 		rdma_hndl->beacon_sent = 1;
-
+	}
 	return 0;
 }
 
@@ -2359,7 +2394,7 @@ void xio_set_timewait_timer(struct xio_rdma_transport *rdma_hndl)
 	retval = xio_ctx_add_delayed_work(
 				rdma_hndl->base.ctx,
 				timeout, rdma_hndl,
-				on_cm_timewait_exit,
+				on_post_disconnected,
 				&rdma_hndl->timewait_timeout_work);
 	if (retval != 0) {
 		ERROR_LOG("xio_ctx_timer_add_delayed_work failed.\n");
@@ -2413,15 +2448,6 @@ static void  on_cm_disconnected(struct rdma_cm_event *ev,
 		kref_put(&rdma_hndl->base.kref, xio_rdma_close_cb);
 	break;
 	case XIO_TRANSPORT_STATE_CLOSED:
-		/* coming here from
-		 * context_shutdown/rdma_close,
-		 * don't go to disconnect state
-		 */
-		retval = xio_rdma_disconnect(rdma_hndl, 1);
-		if (retval)
-			ERROR_LOG("rdma_hndl:%p rdma_disconnect failed, " \
-				  "err=%d\n", rdma_hndl, retval);
-	break;
 	case XIO_TRANSPORT_STATE_INIT:
 	case XIO_TRANSPORT_STATE_LISTEN:
 	case XIO_TRANSPORT_STATE_DISCONNECTED:
@@ -2889,11 +2915,6 @@ void xio_rdma_close_cb(struct kref *kref)
 	struct xio_rdma_transport *rdma_hndl =
 		(struct xio_rdma_transport *)transport;
 
-	xio_transport_notify_observer(
-				transport,
-				XIO_TRANSPORT_EVENT_CLOSED,
-				NULL);
-
 	xio_rdma_post_close((struct xio_transport_base *)rdma_hndl);
 }
 
@@ -2950,8 +2971,6 @@ static void xio_rdma_close(struct xio_transport_base *transport)
 		rdma_hndl->state = XIO_TRANSPORT_STATE_CLOSED;
 		break;
 	}
-
-	kref_put(&transport->kref, xio_rdma_close_cb);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -3056,6 +3075,13 @@ static int xio_rdma_accept(struct xio_transport_base *transport)
 	struct rdma_conn_param		cm_params;
 
 	memset(&cm_params, 0, sizeof(cm_params));
+#ifdef XIO_SRQ_ENABLE
+	cm_params.rnr_retry_count = 7; /* 7 - infinite retry */
+#else
+	cm_params.rnr_retry_count = 3;
+#endif
+	cm_params.retry_count     = 3;
+
 	/*
 	 * Limit the responder resources requested by the remote
 	 * to our capabilities.  Note that the kernel swaps

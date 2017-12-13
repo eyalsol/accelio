@@ -473,12 +473,13 @@ struct xio_rdma_transport {
 
 	uint32_t			ignore_timewait:1;
 	uint32_t			timewait_nr:1; /* flag */
+	uint32_t			post_disconnected_nr:1; /* flag */
 	uint32_t			ignore_disconnect:1;
 	uint32_t			disconnect_nr:1; /* flag */
 	uint32_t                        beacon_sent:1;
 	uint32_t			rdma_disconnect_called:1;
 	uint32_t			src_addr_bounded:1;
-	uint32_t			reserved:25;
+	uint32_t			reserved:24;
 
 	/* too big to be on stack - use as temporaries */
 	union {
