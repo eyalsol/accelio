@@ -4660,6 +4660,8 @@ static void xio_rdma_write_setup_msg(struct xio_rdma_transport *rdma_hndl,
 	PACK_SVAL(msg, tmp_msg, rkey_tbl_size);
 	PACK_LVAL(msg, tmp_msg, max_header_len);
 	PACK_LLVAL(msg, tmp_msg, my_handle);
+	PACK_LVAL(msg, tmp_msg, my_pid);
+	PACK_LVAL(msg, tmp_msg, my_tid);
 	
 #ifdef EYAL_TODO
 	print_hex_dump_bytes("post_send: ", DUMP_PREFIX_ADDRESS,
@@ -4719,6 +4721,8 @@ static void xio_rdma_read_setup_msg(struct xio_rdma_transport *rdma_hndl,
 	UNPACK_SVAL(tmp_msg, msg, rkey_tbl_size);
 	UNPACK_LVAL(tmp_msg, msg, max_header_len);
 	UNPACK_LLVAL(tmp_msg, msg, my_handle);
+	UNPACK_LVAL(tmp_msg, msg, my_pid);
+	UNPACK_LVAL(tmp_msg, msg, my_tid);
 
 #ifdef EYAL_TODO
 	print_hex_dump_bytes("post_send: ", DUMP_PREFIX_ADDRESS,
@@ -4727,6 +4731,8 @@ static void xio_rdma_read_setup_msg(struct xio_rdma_transport *rdma_hndl,
 #endif
 	xio_mbuf_inc(&task->mbuf, sizeof(struct xio_rdma_setup_msg));
 	rdma_hndl->peer_rdma_hndl = ptr_from_int64(msg->my_handle);
+	rdma_hndl->peer_pid = (pid_t)msg->my_pid;
+	rdma_hndl->peer_tid = (pid_t)msg->my_tid;
 
 	if (!msg->rkey_tbl_size)
 		return;
@@ -4774,6 +4780,8 @@ static int xio_rdma_send_setup_req(struct xio_rdma_transport *rdma_hndl,
 	req.rkey_tbl_size	= rdma_hndl->rkey_tbl_size;
 	req.max_header_len	= g_options.max_inline_xio_hdr;
 	req.my_handle		= uint64_from_ptr(rdma_hndl);
+	req.my_pid		= getpid();
+	req.my_tid		= syscall(SYS_gettid);
 
 	xio_rdma_write_setup_msg(rdma_hndl, task, &req);
 
@@ -4824,6 +4832,9 @@ static int xio_rdma_send_setup_rsp(struct xio_rdma_transport *rdma_hndl,
 	rdma_hndl->setup_rsp.buffer_sz		= rdma_hndl->membuf_sz;
 	rdma_hndl->setup_rsp.max_header_len	= g_options.max_inline_xio_hdr;
 	rdma_hndl->setup_rsp.my_handle		= uint64_from_ptr(rdma_hndl);
+	rdma_hndl->setup_rsp.my_pid		= getpid();
+	rdma_hndl->setup_rsp.my_tid		= syscall(SYS_gettid);
+
 
 	xio_rdma_write_setup_msg(rdma_hndl, task, &rdma_hndl->setup_rsp);
 	rdma_hndl->credits = 0;
@@ -4926,10 +4937,10 @@ static int xio_rdma_on_setup_msg(struct xio_rdma_transport *rdma_hndl,
 	event_data.msg.op	= XIO_WC_OP_RECV;
 	event_data.msg.task	= task;
 
-	DEBUG_LOG("%s - rdma_hndl:%p, peer_rdma_hndl:%p\n",
+	DEBUG_LOG("%s - rdma_hndl:%p, peer_rdma_hndl:%p, peer_pid:%d, peer_tid:%d\n",
 		  __func__,
-		  rdma_hndl, rdma_hndl->peer_rdma_hndl);
-
+		  rdma_hndl, rdma_hndl->peer_rdma_hndl,
+		  rdma_hndl->peer_pid, rdma_hndl->peer_tid);
 
 	xio_transport_notify_observer(&rdma_hndl->base,
 				      XIO_TRANSPORT_EVENT_NEW_MESSAGE,

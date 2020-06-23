@@ -240,6 +240,8 @@ static void xio_tcp_write_setup_msg(struct xio_tcp_transport *tcp_hndl,
 	PACK_LVAL(msg, tmp_msg, max_out_iovsz);
 	PACK_LVAL(msg, tmp_msg, max_header_len);
 	PACK_LLVAL(msg, tmp_msg, my_handle);
+	PACK_LVAL(msg, tmp_msg, my_pid);
+	PACK_LVAL(msg, tmp_msg, my_tid);
 
 #ifdef EYAL_TODO
 	print_hex_dump_bytes("post_send: ", DUMP_PREFIX_ADDRESS,
@@ -278,6 +280,8 @@ static void xio_tcp_read_setup_msg(struct xio_tcp_transport *tcp_hndl,
 	UNPACK_LVAL(tmp_msg, msg, max_out_iovsz);
 	UNPACK_LVAL(tmp_msg, msg, max_header_len);
 	UNPACK_LLVAL(tmp_msg, msg, my_handle);
+	UNPACK_LVAL(tmp_msg, msg, my_pid);
+	UNPACK_LVAL(tmp_msg, msg, my_tid);
 
 #ifdef EYAL_TODO
 	print_hex_dump_bytes("post_send: ", DUMP_PREFIX_ADDRESS,
@@ -285,6 +289,8 @@ static void xio_tcp_read_setup_msg(struct xio_tcp_transport *tcp_hndl,
 			     64);
 #endif
 	tcp_hndl->peer_tcp_hndl = ptr_from_int64(msg->my_handle);
+	tcp_hndl->peer_pid = (pid_t)msg->my_pid;
+	tcp_hndl->peer_tid = (pid_t)msg->my_tid;
 
 	xio_mbuf_inc(&task->mbuf, sizeof(struct xio_tcp_setup_msg));
 }
@@ -306,6 +312,8 @@ static int xio_tcp_send_setup_req(struct xio_tcp_transport *tcp_hndl,
 	req.max_out_iovsz	= tcp_options.max_out_iovsz;
 	req.max_header_len      = g_options.max_inline_xio_hdr;
 	req.my_handle		= uint64_from_ptr(tcp_hndl);
+	req.my_pid		= getpid();
+	req.my_tid		= syscall(SYS_gettid);
 
 	xio_tcp_write_setup_msg(tcp_hndl, task, &req);
 
@@ -350,6 +358,9 @@ static int xio_tcp_send_setup_rsp(struct xio_tcp_transport *tcp_hndl,
 	rsp->buffer_sz          = tcp_hndl->membuf_sz;
 	rsp->max_header_len     = g_options.max_inline_xio_hdr;
 	rsp->my_handle		= uint64_from_ptr(tcp_hndl);
+	rsp->my_pid		= getpid();
+	rsp->my_tid		= syscall(SYS_gettid);
+
 
 	xio_tcp_write_setup_msg(tcp_hndl, task, rsp);
 
@@ -430,9 +441,10 @@ static int xio_tcp_on_setup_msg(struct xio_tcp_transport *tcp_hndl,
 
 	list_move_tail(&task->tasks_list_entry, &tcp_hndl->io_list);
 
-	DEBUG_LOG("%s - tcp_hndl:%p, peer_tcp_hndl:%p\n",
+	DEBUG_LOG("%s - tcp_hndl:%p, peer_tcp_hndl:%p, peer_pid:%d, peer_tid:%d\n",
 		  __func__,
-		  tcp_hndl, tcp_hndl->peer_tcp_hndl);
+		  tcp_hndl, tcp_hndl->peer_tcp_hndl,
+		  tcp_hndl->peer_pid, tcp_hndl->peer_tid);
 
 	if (task->status)
 		xio_free_tcp_task_mem(&tcp_hndl->base, task);

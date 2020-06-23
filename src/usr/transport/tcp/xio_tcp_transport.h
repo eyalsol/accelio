@@ -198,6 +198,8 @@ PACKED_MEMORY(struct xio_tcp_setup_msg {
 	uint32_t                max_header_len;
 	uint32_t		pad;
 	uint64_t		my_handle;
+	uint32_t		my_pid;
+	uint32_t		my_tid;
 });
 
 PACKED_MEMORY(struct xio_tcp_cancel_hdr {
@@ -360,6 +362,8 @@ struct xio_tcp_transport {
 	struct xio_ev_data              flush_tx_event;
 	struct xio_ev_data		ctl_rx_event;
 	struct xio_ev_data		disconnect_event;
+	pid_t				peer_pid;
+	pid_t				peer_tid;
 };
 
 int xio_tcp_get_max_header_size(void);

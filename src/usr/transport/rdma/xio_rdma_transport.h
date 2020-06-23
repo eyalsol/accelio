@@ -225,6 +225,8 @@ struct __attribute__((__packed__)) xio_rdma_setup_msg {
 	uint32_t                max_header_len;
 	uint32_t		pad;
 	uint64_t		my_handle;
+	uint32_t		my_pid;
+	uint32_t		my_tid;
 };
 
 struct __attribute__((__packed__)) xio_nop_hdr {
@@ -330,6 +332,8 @@ struct xio_device {
 	struct ibv_pd			*pd;
 	struct ibv_xio_device_attr	device_attr;
 	struct list_head		xm_list; /* list of xio_mr_elem */
+	int				qp_create_lock;
+	int				pad;
 };
 
 struct xio_mr_elem {
@@ -490,6 +494,9 @@ struct xio_rdma_transport {
 	union xio_sockaddr		src_sa;
 	union xio_sockaddr		dst_sa;
 	char 				*srv_listen_uri;
+	pid_t				peer_pid;
+	pid_t				peer_tid;
+
 	HT_ENTRY(rdma_hndl, xio_key_int32) rdma_hndl_htbl;
 };
 
