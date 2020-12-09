@@ -3403,7 +3403,6 @@ static int xio_rdma_on_recv_rsp(struct xio_rdma_transport *rdma_hndl,
 			task->status = XIO_E_MSG_SIZE;
 		} else {
 			hdr_len = imsg->in.header.iov_len;
-			task->status = XIO_E_SUCCESS;
 		}
 		if (hdr_len && imsg->in.header.iov_base)
 			memcpy(omsg->in.header.iov_base,
@@ -3443,8 +3442,6 @@ static int xio_rdma_on_recv_rsp(struct xio_rdma_transport *rdma_hndl,
 				if (idata_len > odata_len) {
 					task->status = XIO_E_MSG_SIZE;
 					goto msg_comp;
-				} else {
-					task->status = XIO_E_SUCCESS;
 				}
 				sg = sge_first(osgtbl_ops, osgtbl);
 				if (sge_addr(osgtbl_ops, sg))  {

@@ -2808,7 +2808,6 @@ static int xio_tcp_on_recv_rsp_data(struct xio_tcp_transport *tcp_hndl,
 			task->status = XIO_E_MSG_SIZE;
 		} else {
 			hdr_len = imsg->in.header.iov_len;
-			task->status = XIO_E_SUCCESS;
 		}
 		if (hdr_len)
 			memcpy(omsg->in.header.iov_base,
@@ -2835,8 +2834,6 @@ static int xio_tcp_on_recv_rsp_data(struct xio_tcp_transport *tcp_hndl,
 				if (idata_len > odata_len) {
 					task->status = XIO_E_MSG_SIZE;
 					goto partial_msg;
-				} else {
-					task->status = XIO_E_SUCCESS;
 				}
 				sg = sge_first(osgtbl_ops, osgtbl);
 				if (sge_addr(osgtbl_ops, sg))  {
