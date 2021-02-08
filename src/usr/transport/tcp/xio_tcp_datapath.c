@@ -2236,16 +2236,24 @@ int xio_tcp_recvmsg_work(struct xio_tcp_transport *tcp_hndl, int fd,
 		return 1;
 
 	while (xio_recv->tot_iov_byte_len) {
-		retval = recvmsg(fd, &xio_recv->msg, 0);
+		retval = recvmsg(fd, &xio_recv->msg, MSG_DONTWAIT);
 		if (retval > 0) {
-			recv_bytes += retval;
-			xio_recv->tot_iov_byte_len -= retval;
+			if (xio_recv->tot_iov_byte_len >= (uint64_t)retval) {
+				recv_bytes += retval;
+				xio_recv->tot_iov_byte_len -= retval;
 
-			if (xio_recv->tot_iov_byte_len == 0) {
-				xio_recv->msg.msg_iovlen = 0;
-				break;
+				if (xio_recv->tot_iov_byte_len == 0) {
+					xio_recv->msg.msg_iovlen = 0;
+					break;
+				}
+			} else {
+				xio_set_error(EBADMSG);
+				ERROR_LOG("unexpected message size. (errno=%d)" \
+					  "tot_iov_byte_len:%lu, retval:%d\n",
+					  EBADMSG,
+					  xio_recv->tot_iov_byte_len, retval);
+				return -1;
 			}
-
 			tmp_bytes = 0;
 			for (i = 0; i < xio_recv->msg.msg_iovlen; i++) {
 				if (xio_recv->msg.msg_iov[i].iov_len +
